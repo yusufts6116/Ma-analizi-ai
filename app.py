@@ -1,150 +1,250 @@
 import streamlit as st
 import pandas as pd
 import requests
-from datetime import datetime
 
-st.set_page_config(page_title="Maç Analiz AI", page_icon="⚽", layout="wide")
+st.set_page_config(
+    page_title="Maç Analizi AI",
+    page_icon="⚽",
+    layout="wide"
+)
 
-st.title("⚽ Maç Analiz AI")
-st.caption("Takımların geçmiş performanslarını karşılaştıran ücretsiz ilk sürüm.")
+st.title("⚽ Maç Analizi AI")
+st.caption("Takımların geçmiş performanslarını karşılaştıran istatistiksel analiz uygulaması.")
 
 API_URL = "https://api.football-data.org/v4"
 
+
 @st.cache_data(ttl=900)
 def get_competitions(token):
-    r = requests.get(f"{API_URL}/competitions", headers={"X-Auth-Token": token}, timeout=15)
+    r = requests.get(
+        f"{API_URL}/competitions",
+        headers={"X-Auth-Token": token},
+        timeout=15
+    )
     r.raise_for_status()
     return r.json()["competitions"]
 
+
 @st.cache_data(ttl=900)
 def get_teams(token, competition_code):
-    r = requests.get(f"{API_URL}/competitions/{competition_code}/teams",
-                     headers={"X-Auth-Token": token}, timeout=15)
+    r = requests.get(
+        f"{API_URL}/competitions/{competition_code}/teams",
+        headers={"X-Auth-Token": token},
+        timeout=15
+    )
     r.raise_for_status()
     return r.json()["teams"]
 
+
 @st.cache_data(ttl=900)
 def get_matches(token, team_id, limit=20):
-    r = requests.get(f"{API_URL}/teams/{team_id}/matches",
-                     headers={"X-Auth-Token": token},
-                     params={"status": "FINISHED", "limit": limit},
-                     timeout=15)
+    r = requests.get(
+        f"{API_URL}/teams/{team_id}/matches",
+        headers={"X-Auth-Token": token},
+        params={
+            "status": "FINISHED",
+            "limit": limit
+        },
+        timeout=15
+    )
     r.raise_for_status()
     return r.json()["matches"]
 
+
 def team_stats(matches, team_id):
     rows = []
+
     for m in matches:
         home = m["homeTeam"]["id"] == team_id
-        gf = m["score"]["fullTime"]["home"] if home else m["score"]["fullTime"]["away"]
-        ga = m["score"]["fullTime"]["away"] if home else m["score"]["fullTime"]["home"]
-        result = "G" if gf > ga else ("B" if gf == ga else "M")
+
+        if home:
+            gf = m["score"]["fullTime"]["home"]
+            ga = m["score"]["fullTime"]["away"]
+            opponent = m["awayTeam"]["name"]
+            location = "Ev"
+        else:
+            gf = m["score"]["fullTime"]["away"]
+            ga = m["score"]["fullTime"]["home"]
+            opponent = m["homeTeam"]["name"]
+            location = "Deplasman"
+
+        if gf is None or ga is None:
+            continue
+
+        if gf > ga:
+            result = "G"
+        elif gf == ga:
+            result = "B"
+        else:
+            result = "M"
+
         rows.append({
             "Tarih": m["utcDate"][:10],
-            "Rakip": m["awayTeam"]["name"] if home else m["homeTeam"]["name"],
-            "GF": gf, "GA": ga, "Sonuç": result,
-            "Ev/Dep": "Ev" if home else "Dep"
+            "Rakip": opponent,
+            "GF": gf,
+            "GA": ga,
+            "Sonuç": result,
+            "Saha": location
         })
+
     return pd.DataFrame(rows)
 
-def analyze(name, df):
+
+def analyze_team(name, df):
     if df.empty:
-        return {"name": name, "form": "-", "puan": 0, "gf": 0, "ga": 0, "mac": 0}
-    points = sum(3 if x=="G" else 1 if x=="B" else 0 for x in df["Sonuç"])
+        return {
+            "name": name,
+            "form": "-",
+            "puan": 0,
+            "gf": 0,
+            "ga": 0,
+            "mac": 0,
+            "galibiyet": 0,
+            "beraberlik": 0,
+            "maglubiyet": 0,
+            "gol_ort": 0,
+            "yenen_ort": 0
+        }
+
+    points = sum(
+        3 if x == "G" else 1 if x == "B" else 0
+        for x in df["Sonuç"]
+    )
+
     return {
         "name": name,
         "form": "".join(df["Sonuç"].tolist()[:5]),
         "puan": points,
         "gf": int(df["GF"].sum()),
         "ga": int(df["GA"].sum()),
-        "mac": len(df)
+        "mac": len(df),
+        "galibiyet": int((df["Sonuç"] == "G").sum()),
+        "beraberlik": int((df["Sonuç"] == "B").sum()),
+        "maglubiyet": int((df["Sonuç"] == "M").sum()),
+        "gol_ort": round(df["GF"].mean(), 2),
+        "yenen_ort": round(df["GA"].mean(), 2)
     }
 
+
+# API anahtarı
 st.sidebar.header("⚙️ Ayarlar")
-token = st.sidebar.text_input("Football-Data API anahtarı", type="password",
-                              help="Ücretsiz API anahtarını football-data.org hesabından alabilirsin.")
+
+token = st.sidebar.text_input(
+    "Football-Data API anahtarı",
+    type="password",
+    help="Football-Data.org API anahtarını buraya gir."
+)
 
 if not token:
     st.info("Başlamak için sol taraftaki API anahtarını gir.")
-    st.markdown("""
-### Bu sürüm ne yapıyor?
-- Lig seçimi
-- Takım seçimi
-- Son maçları çekme
-- Son 5 maç formu
-- Atılan / yenilen gol
-- Basit karşılaştırma ve otomatik analiz
-
-**Not:** Bu uygulama bahis/tahmin sistemi değildir; istatistiksel maç analizi yapar.
-""")
     st.stop()
 
+
+# Ligleri getir
 try:
     competitions = get_competitions(token)
-    preferred = ["Süper Lig", "Premier League", "La Liga", "Serie A", "Bundesliga", "UEFA Champions League"]
-    names = [c["name"] for c in competitions]
-    ordered = [x for x in preferred if x in names] + [x for x in names if x not in preferred]
-    selected_name = st.selectbox("Lig", ordered)
-    comp = next(c for c in competitions if c["name"] == selected_name)
+except Exception:
+    st.error("API anahtarı geçersiz olabilir veya API'ye ulaşılamadı.")
+    st.stop()
 
-    teams = get_teams(token, comp["code"])
-    team_names = sorted([t["name"] for t in teams])
 
-    c1, c2 = st.columns(2)
-    home_name = c1.selectbox("1. Takım", team_names, index=0)
-    away_name = c2.selectbox("2. Takım", team_names, index=min(1, len(team_names)-1))
+competition_names = {
+    c["name"]: c["code"]
+    for c in competitions
+}
 
-    if home_name == away_name:
-        st.warning("İki farklı takım seç.")
-        st.stop()
+selected_competition_name = st.selectbox(
+    "Lig",
+    list(competition_names.keys())
+)
 
-    home_team = next(t for t in teams if t["name"] == home_name)
-    away_team = next(t for t in teams if t["name"] == away_name)
+competition_code = competition_names[selected_competition_name]
 
-    if st.button("🔎 MAÇI ANALİZ ET", use_container_width=True):
-        with st.spinner("Maç verileri analiz ediliyor..."):
-            h_matches = get_matches(token, home_team["id"])
-            a_matches = get_matches(token, away_team["id"])
-            hdf = team_stats(h_matches, home_team["id"])
-            adf = team_stats(a_matches, away_team["id"])
-            hs = analyze(home_name, hdf)
-            a_s = analyze(away_name, adf)
 
-        st.subheader(f"{home_name}  vs  {away_name}")
+# Takımları getir
+try:
+    teams = get_teams(token, competition_code)
+except Exception:
+    st.error("Bu ligdeki takımlar alınamadı.")
+    st.stop()
 
-        cols = st.columns(2)
-        for col, s in zip(cols, [hs, a_s]):
-            with col:
-                st.markdown(f"### {s['name']}")
-                st.metric("Son 5 form", s["form"])
-                st.metric("Toplam puan", s["puan"])
-                st.metric("Gol", f"{s['gf']} - {s['ga']}")
 
-        st.divider()
+team_names = {
+    t["name"]: t["id"]
+    for t in teams
+}
 
-        h_score = hs["puan"] + (hs["gf"] - hs["ga"])
-        a_score = a_s["puan"] + (a_s["gf"] - a_s["ga"])
+if len(team_names) < 2:
+    st.warning("Bu ligde yeterli takım bulunamadı.")
+    st.stop()
 
-        if h_score > a_score:
-            verdict = f"{home_name} son maç verilerinde daha güçlü görünüyor."
-        elif a_score > h_score:
-            verdict = f"{away_name} son maç verilerinde daha güçlü görünüyor."
-        else:
-            verdict = "İki takımın son maç verileri birbirine yakın."
 
-        st.success("📊 Analiz sonucu")
-        st.write(verdict)
-        st.caption("Bu sonuç geçmiş istatistiklere dayalı basit bir karşılaştırmadır; maç sonucunu garanti etmez.")
+# Takım seçimi
+col1, col2 = st.columns(2)
 
-        t1, t2 = st.columns(2)
-        with t1:
-            st.write(f"**{home_name} son maçları**")
-            st.dataframe(hdf, use_container_width=True, hide_index=True)
-        with t2:
-            st.write(f"**{away_name} son maçları**")
-            st.dataframe(adf, use_container_width=True)
+with col1:
+    team1_name = st.selectbox(
+        "1. Takım",
+        list(team_names.keys()),
+        index=0
+    )
 
-except requests.HTTPError as e:
-    st.error("API isteği başarısız oldu. API anahtarını ve günlük istek limitini kontrol et.")
-except Exception as e:
-    st.error(f"Bir hata oluştu: {e}")
+with col2:
+    team2_options = [
+        x for x in team_names.keys()
+        if x != team1_name
+    ]
+
+    team2_name = st.selectbox(
+        "2. Takım",
+        team2_options,
+        index=0
+    )
+
+
+team1_id = team_names[team1_name]
+team2_id = team_names[team2_name]
+
+
+# Maçları getir
+try:
+    matches1 = get_matches(token, team1_id, 20)
+    matches2 = get_matches(token, team2_id, 20)
+except Exception:
+    st.error("Maç verileri alınamadı.")
+    st.stop()
+
+
+df1 = team_stats(matches1, team1_id)
+df2 = team_stats(matches2, team2_id)
+
+stats1 = analyze_team(team1_name, df1)
+stats2 = analyze_team(team2_name, df2)
+
+
+# Başlık
+st.divider()
+
+st.header(
+    f"⚽ {team1_name} vs {team2_name}"
+)
+
+
+# Genel form
+col1, col2 = st.columns(2)
+
+with col1:
+    st.subheader(team1_name)
+
+    st.metric(
+        "Son 5 Form",
+        stats1["form"]
+    )
+
+    st.metric(
+        "Toplam Puan",
+        stats1["puan"]
+    )
+
+    st.metric(
+        "
