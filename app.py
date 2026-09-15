@@ -247,4 +247,332 @@ with col1:
     )
 
     st.metric(
-        "
+        "Atılan - Yenilen Gol",
+        f'{stats1["gf"]} - {stats1["ga"]}'
+    )
+
+with col2:
+    st.subheader(team2_name)
+
+    st.metric(
+        "Son 5 Form",
+        stats2["form"]
+    )
+
+    st.metric(
+        "Toplam Puan",
+        stats2["puan"]
+    )
+
+    st.metric(
+        "Atılan - Yenilen Gol",
+        f'{stats2["gf"]} - {stats2["ga"]}'
+    )
+
+
+# Gol karşılaştırması
+st.divider()
+
+st.subheader("📊 Gol Karşılaştırması")
+
+chart_data = pd.DataFrame({
+    "Takım": [team1_name, team2_name],
+    "Atılan Gol": [stats1["gf"], stats2["gf"]],
+    "Yenilen Gol": [stats1["ga"], stats2["ga"]]
+})
+
+st.bar_chart(
+    chart_data.set_index("Takım")
+)
+
+
+# Detaylı istatistikler
+st.divider()
+
+st.subheader("📈 Detaylı İstatistikler")
+
+comparison = pd.DataFrame({
+    "İstatistik": [
+        "Maç",
+        "Galibiyet",
+        "Beraberlik",
+        "Mağlubiyet",
+        "Atılan Gol",
+        "Yenilen Gol",
+        "Maç Başına Atılan Gol",
+        "Maç Başına Yenilen Gol"
+    ],
+
+    team1_name: [
+        stats1["mac"],
+        stats1["galibiyet"],
+        stats1["beraberlik"],
+        stats1["maglubiyet"],
+        stats1["gf"],
+        stats1["ga"],
+        stats1["gol_ort"],
+        stats1["yenen_ort"]
+    ],
+
+    team2_name: [
+        stats2["mac"],
+        stats2["galibiyet"],
+        stats2["beraberlik"],
+        stats2["maglubiyet"],
+        stats2["gf"],
+        stats2["ga"],
+        stats2["gol_ort"],
+        stats2["yenen_ort"]
+    ]
+})
+
+st.dataframe(
+    comparison,
+    use_container_width=True,
+    hide_index=True
+)
+
+
+# Basit analiz
+st.divider()
+
+st.subheader("🧠 Analiz Sonucu")
+
+score1 = 0
+score2 = 0
+
+if stats1["puan"] > stats2["puan"]:
+    score1 += 1
+elif stats2["puan"] > stats1["puan"]:
+    score2 += 1
+
+if stats1["gf"] > stats2["gf"]:
+    score1 += 1
+elif stats2["gf"] > stats1["gf"]:
+    score2 += 1
+
+if stats1["ga"] < stats2["ga"]:
+    score1 += 1
+elif stats2["ga"] < stats1["ga"]:
+    score2 += 1
+
+if stats1["gol_ort"] > stats2["gol_ort"]:
+    score1 += 1
+elif stats2["gol_ort"] > stats1["gol_ort"]:
+    score2 += 1
+
+
+if score1 > score2:
+    st.success(
+        f"{team1_name} son maç verilerinde daha güçlü görünüyor."
+    )
+
+elif score2 > score1:
+    st.success(
+        f"{team2_name} son maç verilerinde daha güçlü görünüyor."
+    )
+
+else:
+    st.info(
+        "İki takımın geçmiş istatistikleri birbirine oldukça yakın görünüyor."
+    )
+
+
+st.caption(
+    "Bu sonuç yalnızca geçmiş istatistiklere dayalı basit bir karşılaştırmadır; maç sonucunu garanti etmez."
+)
+
+
+# Son maçlar
+st.divider()
+
+col1, col2 = st.columns(2)
+
+with col1:
+
+    st.subheader(
+        f"📋 {team1_name} Son Maçları"
+    )
+
+    if not df1.empty:
+        st.dataframe(
+            df1.head(10),
+            use_container_width=True,
+            hide_index=True
+        )
+    else:
+        st.info("Maç verisi bulunamadı.")
+
+
+with col2:
+
+    st.subheader(
+        f"📋 {team2_name} Son Maçları"
+    )
+
+    if not df2.empty:
+        st.dataframe(
+            df2.head(10),
+            use_container_width=True,
+            hide_index=True
+        )
+    else:
+        st.info("Maç verisi bulunamadı.")
+
+
+# Ev / Deplasman
+st.divider()
+
+st.subheader("🏠 İç Saha / Deplasman Performansı")
+
+
+def venue_stats(df):
+
+    if df.empty:
+        return pd.DataFrame()
+
+    result = []
+
+    for venue in ["Ev", "Deplasman"]:
+
+        part = df[df["Saha"] == venue]
+
+        if len(part) == 0:
+            continue
+
+        result.append({
+            "Saha": venue,
+            "Maç": len(part),
+            "Galibiyet": int(
+                (part["Sonuç"] == "G").sum()
+            ),
+            "Beraberlik": int(
+                (part["Sonuç"] == "B").sum()
+            ),
+            "Mağlubiyet": int(
+                (part["Sonuç"] == "M").sum()
+            ),
+            "Atılan Gol": int(
+                part["GF"].sum()
+            ),
+            "Yenilen Gol": int(
+                part["GA"].sum()
+            )
+        })
+
+    return pd.DataFrame(result)
+
+
+venue1 = venue_stats(df1)
+venue2 = venue_stats(df2)
+
+
+col1, col2 = st.columns(2)
+
+with col1:
+
+    st.write(f"**{team1_name}**")
+
+    if not venue1.empty:
+        st.dataframe(
+            venue1,
+            use_container_width=True,
+            hide_index=True
+        )
+    else:
+        st.info("Yeterli veri bulunamadı.")
+
+
+with col2:
+
+    st.write(f"**{team2_name}**")
+
+    if not venue2.empty:
+        st.dataframe(
+            venue2,
+            use_container_width=True,
+            hide_index=True
+        )
+    else:
+        st.info("Yeterli veri bulunamadı.")
+
+
+# H2H
+st.divider()
+
+st.subheader("🆚 Birbirleriyle Oynadıkları Maçlar")
+
+try:
+
+    h2h_response = requests.get(
+        f"{API_URL}/teams/{team1_id}/matches",
+        headers={"X-Auth-Token": token},
+        params={
+            "status": "FINISHED",
+            "limit": 100
+        },
+        timeout=15
+    )
+
+    h2h_response.raise_for_status()
+
+    h2h_matches = h2h_response.json()["matches"]
+
+    h2h_rows = []
+
+    for m in h2h_matches:
+
+        home_id = m["homeTeam"]["id"]
+        away_id = m["awayTeam"]["id"]
+
+        if {home_id, away_id} == {
+            team1_id,
+            team2_id
+        }:
+
+            h2h_rows.append({
+                "Tarih": m["utcDate"][:10],
+                "Ev Sahibi": m["homeTeam"]["name"],
+                "Deplasman": m["awayTeam"]["name"],
+                "Skor": (
+                    f'{m["score"]["fullTime"]["home"]}'
+                    f' - '
+                    f'{m["score"]["fullTime"]["away"]}'
+                )
+            })
+
+    if h2h_rows:
+
+        h2h_df = pd.DataFrame(h2h_rows)
+
+        st.dataframe(
+            h2h_df,
+            use_container_width=True,
+            hide_index=True
+        )
+
+    else:
+
+        st.info(
+            "Mevcut API verileri içerisinde "
+            "bu iki takımın yakın dönem karşılaşması bulunamadı."
+        )
+
+except Exception:
+
+    st.info(
+        "İki takımın geçmiş karşılaşmaları şu anda alınamadı."
+    )
+
+
+# Alt bilgi
+st.divider()
+
+st.caption(
+    "⚽ Futbol verileri Football-Data.org API üzerinden alınmaktadır."
+)
+
+st.caption(
+    "Bu uygulama istatistiksel maç analizi içindir; "
+    "bahis veya garanti edilmiş maç tahmini sunmaz."
+)
