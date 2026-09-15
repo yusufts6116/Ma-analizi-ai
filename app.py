@@ -58,20 +58,8 @@ def get_matches(token, team_id, limit=20):
     return r.json()["matches"]
 
 
-# Tek maçın ayrıntılı istatistiklerini alır
-@st.cache_data(ttl=900)
-def get_match_details(token, match_id):
-    r = requests.get(
-        f"{API_URL}/matches/{match_id}",
-        headers={"X-Auth-Token": token},
-        timeout=15
-    )
-    r.raise_for_status()
-    return r.json()
-
-
 # =========================================================
-# TAKIM GOL İSTATİSTİKLERİ
+# TAKIM GENEL İSTATİSTİKLERİ
 # =========================================================
 
 def team_stats(matches, team_id):
@@ -83,15 +71,21 @@ def team_stats(matches, team_id):
         home = m["homeTeam"]["id"] == team_id
 
         if home:
+
             gf = m["score"]["fullTime"]["home"]
             ga = m["score"]["fullTime"]["away"]
+
             opponent = m["awayTeam"]["name"]
+
             location = "Ev"
 
         else:
+
             gf = m["score"]["fullTime"]["away"]
             ga = m["score"]["fullTime"]["home"]
+
             opponent = m["homeTeam"]["name"]
+
             location = "Deplasman"
 
         if gf is None or ga is None:
@@ -119,7 +113,7 @@ def team_stats(matches, team_id):
 
 
 # =========================================================
-# TAKIM GENEL ANALİZİ
+# TAKIM ANALİZİ
 # =========================================================
 
 def analyze_team(name, df):
@@ -149,144 +143,44 @@ def analyze_team(name, df):
 
     return {
         "name": name,
-        "form": "".join(df["Sonuç"].tolist()[:5]),
+
+        "form": "".join(
+            df["Sonuç"].tolist()[:5]
+        ),
+
         "puan": points,
-        "gf": int(df["GF"].sum()),
-        "ga": int(df["GA"].sum()),
-        "mac": len(df),
-        "galibiyet": int((df["Sonuç"] == "G").sum()),
-        "beraberlik": int((df["Sonuç"] == "B").sum()),
-        "maglubiyet": int((df["Sonuç"] == "M").sum()),
-        "gol_ort": round(df["GF"].mean(), 2),
-        "yenen_ort": round(df["GA"].mean(), 2)
-    }
 
+        "gf": int(
+            df["GF"].sum()
+        ),
 
-# =========================================================
-# ŞUT İSTATİSTİKLERİ
-# =========================================================
+        "ga": int(
+            df["GA"].sum()
+        ),
 
-def get_shot_stats(token, matches, team_id, limit=5):
-
-    rows = []
-
-    # API limitini zorlamamak için son 5 maç
-    for m in matches[:limit]:
-
-        try:
-
-            detail = get_match_details(
-                token,
-                m["id"]
-            )
-
-            home_team = detail["homeTeam"]
-            away_team = detail["awayTeam"]
-
-            if home_team["id"] == team_id:
-
-                team = home_team
-                opponent = away_team
-                venue = "Ev"
-
-            elif away_team["id"] == team_id:
-
-                team = away_team
-                opponent = home_team
-                venue = "Deplasman"
-
-            else:
-                continue
-
-            team_statistics = team.get(
-                "statistics",
-                {}
-            )
-
-            opponent_statistics = opponent.get(
-                "statistics",
-                {}
-            )
-
-            shots = team_statistics.get(
-                "shots"
-            )
-
-            shots_on_target = team_statistics.get(
-                "shots_on_goal"
-            )
-
-            shots_off_target = team_statistics.get(
-                "shots_off_goal"
-            )
-
-            opponent_shots = opponent_statistics.get(
-                "shots"
-            )
-
-            # Şut verisi yoksa bu maçı atla
-            if shots is None:
-                continue
-
-            rows.append({
-                "Tarih": detail["utcDate"][:10],
-                "Rakip": opponent["name"],
-                "Saha": venue,
-                "Şut": shots,
-                "İsabetli Şut": shots_on_target or 0,
-                "İsabetsiz Şut": shots_off_target or 0,
-                "Rakip Şut": opponent_shots or 0
-            })
-
-        except Exception:
-            continue
-
-    return pd.DataFrame(rows)
-
-
-def calculate_shot_summary(df):
-
-    if df.empty:
-
-        return {
-            "mac": 0,
-            "sut_ort": 0,
-            "isabetli_ort": 0,
-            "isabetsiz_ort": 0,
-            "rakip_sut_ort": 0,
-            "isabet_orani": 0
-        }
-
-    total_shots = df["Şut"].sum()
-    total_on_target = df["İsabetli Şut"].sum()
-
-    return {
         "mac": len(df),
 
-        "sut_ort": round(
-            df["Şut"].mean(),
+        "galibiyet": int(
+            (df["Sonuç"] == "G").sum()
+        ),
+
+        "beraberlik": int(
+            (df["Sonuç"] == "B").sum()
+        ),
+
+        "maglubiyet": int(
+            (df["Sonuç"] == "M").sum()
+        ),
+
+        "gol_ort": round(
+            df["GF"].mean(),
             2
         ),
 
-        "isabetli_ort": round(
-            df["İsabetli Şut"].mean(),
+        "yenen_ort": round(
+            df["GA"].mean(),
             2
-        ),
-
-        "isabetsiz_ort": round(
-            df["İsabetsiz Şut"].mean(),
-            2
-        ),
-
-        "rakip_sut_ort": round(
-            df["Rakip Şut"].mean(),
-            2
-        ),
-
-        "isabet_orani": round(
-            (total_on_target / total_shots) * 100,
-            1
-        ) if total_shots > 0 else 0
+        )
     }
 
 
@@ -319,10 +213,19 @@ try:
 
     competitions = get_competitions(token)
 
+except requests.exceptions.HTTPError:
+
+    st.error(
+        "API anahtarı geçersiz olabilir veya API kullanım "
+        "limitine ulaşılmış olabilir."
+    )
+
+    st.stop()
+
 except Exception:
 
     st.error(
-        "API anahtarı geçersiz olabilir veya API'ye ulaşılamadı."
+        "API'ye bağlanırken bir hata oluştu."
     )
 
     st.stop()
@@ -332,6 +235,15 @@ competition_names = {
     c["name"]: c["code"]
     for c in competitions
 }
+
+
+if not competition_names:
+
+    st.warning(
+        "Kullanılabilir lig bulunamadı."
+    )
+
+    st.stop()
 
 
 selected_competition_name = st.selectbox(
@@ -410,8 +322,13 @@ with col2:
     )
 
 
-team1_id = team_names[team1_name]
-team2_id = team_names[team2_name]
+team1_id = team_names[
+    team1_name
+]
+
+team2_id = team_names[
+    team2_name
+]
 
 
 # =========================================================
@@ -432,10 +349,19 @@ try:
         20
     )
 
+except requests.exceptions.HTTPError:
+
+    st.error(
+        "Maç verileri alınamadı. API kullanım limitini "
+        "aşmış olabilirsiniz."
+    )
+
+    st.stop()
+
 except Exception:
 
     st.error(
-        "Maç verileri alınamadı."
+        "Maç verileri alınırken bir hata oluştu."
     )
 
     st.stop()
@@ -460,34 +386,6 @@ stats1 = analyze_team(
 stats2 = analyze_team(
     team2_name,
     df2
-)
-
-
-# =========================================================
-# ŞUT VERİLERİNİ GETİR
-# =========================================================
-
-shot_df1 = get_shot_stats(
-    token,
-    matches1,
-    team1_id,
-    5
-)
-
-shot_df2 = get_shot_stats(
-    token,
-    matches2,
-    team2_id,
-    5
-)
-
-
-shot1 = calculate_shot_summary(
-    shot_df1
-)
-
-shot2 = calculate_shot_summary(
-    shot_df2
 )
 
 
@@ -656,338 +554,73 @@ st.subheader(
 )
 
 
-col1, col2 = st.columns(2)
+st.info(
+    "ℹ️ Şut, isabetli şut ve isabetsiz şut gibi ayrıntılı "
+    "istatistikler Football-Data.org'un mevcut ücretsiz "
+    "planında sunulmuyor. Bu nedenle burada 0 gibi yanıltıcı "
+    "değerler gösterilmiyor."
+)
 
 
-with col1:
+shot_info = pd.DataFrame({
 
-    st.subheader(team1_name)
+    "İstatistik": [
 
-    st.metric(
         "Maç Başına Şut",
-        shot1["sut_ort"]
-    )
-
-    st.metric(
         "Maç Başına İsabetli Şut",
-        shot1["isabetli_ort"]
-    )
-
-    st.metric(
         "Maç Başına İsabetsiz Şut",
-        shot1["isabetsiz_ort"]
-    )
-
-    st.metric(
         "Şut İsabet Oranı",
-        f'%{shot1["isabet_orani"]}'
-    )
+        "Rakibe Verilen Şut"
 
-    st.metric(
-        "Rakibe Verilen Şut",
-        shot1["rakip_sut_ort"]
-    )
+    ],
+
+    team1_name: [
+
+        "Veri yok",
+        "Veri yok",
+        "Veri yok",
+        "Veri yok",
+        "Veri yok"
+
+    ],
+
+    team2_name: [
+
+        "Veri yok",
+        "Veri yok",
+        "Veri yok",
+        "Veri yok",
+        "Veri yok"
+
+    ]
+})
 
 
-with col2:
-
-    st.subheader(team2_name)
-
-    st.metric(
-        "Maç Başına Şut",
-        shot2["sut_ort"]
-    )
-
-    st.metric(
-        "Maç Başına İsabetli Şut",
-        shot2["isabetli_ort"]
-    )
-
-    st.metric(
-        "Maç Başına İsabetsiz Şut",
-        shot2["isabetsiz_ort"]
-    )
-
-    st.metric(
-        "Şut İsabet Oranı",
-        f'%{shot2["isabet_orani"]}'
-    )
-
-    st.metric(
-        "Rakibe Verilen Şut",
-        shot2["rakip_sut_ort"]
-    )
+st.dataframe(
+    shot_info,
+    use_container_width=True,
+    hide_index=True
+)
 
 
 # =========================================================
-# ŞUT KARŞILAŞTIRMASI
+# ŞUT ANALİZİ
 # =========================================================
-
-if not shot_df1.empty or not shot_df2.empty:
-
-    st.subheader(
-        "📊 Şut Karşılaştırması"
-    )
-
-    shot_comparison = pd.DataFrame({
-
-        "İstatistik": [
-
-            "Maç Başına Şut",
-            "Maç Başına İsabetli Şut",
-            "Maç Başına İsabetsiz Şut",
-            "Rakibe Verilen Şut",
-            "Şut İsabet Oranı"
-
-        ],
-
-        team1_name: [
-
-            shot1["sut_ort"],
-            shot1["isabetli_ort"],
-            shot1["isabetsiz_ort"],
-            shot1["rakip_sut_ort"],
-            f'%{shot1["isabet_orani"]}'
-
-        ],
-
-        team2_name: [
-
-            shot2["sut_ort"],
-            shot2["isabetli_ort"],
-            shot2["isabetsiz_ort"],
-            shot2["rakip_sut_ort"],
-            f'%{shot2["isabet_orani"]}'
-
-        ]
-    })
-
-
-    st.dataframe(
-        shot_comparison,
-        use_container_width=True,
-        hide_index=True
-    )
-
-
-    # =====================================================
-    # SON 5 MAÇ ŞUT GRAFİĞİ
-    # =====================================================
-
-    st.subheader(
-        "📈 Son 5 Maç Şut Grafiği"
-    )
-
-
-    graph_rows = []
-
-
-    for _, row in shot_df1.iterrows():
-
-        graph_rows.append({
-
-            "Tarih": row["Tarih"],
-            "Takım": team1_name,
-            "Şut": row["Şut"]
-
-        })
-
-
-    for _, row in shot_df2.iterrows():
-
-        graph_rows.append({
-
-            "Tarih": row["Tarih"],
-            "Takım": team2_name,
-            "Şut": row["Şut"]
-
-        })
-
-
-    if graph_rows:
-
-        shot_graph = pd.DataFrame(
-            graph_rows
-        )
-
-        st.line_chart(
-            shot_graph,
-            x="Tarih",
-            y="Şut",
-            color="Takım"
-        )
-
-
-else:
-
-    st.info(
-        "Bu maçlar için şut istatistikleri "
-        "API tarafından sağlanamadı."
-    )
-
-
-# =========================================================
-# ŞUT VERİLERİNİN MAÇ MAÇ GÖSTERİLMESİ
-# =========================================================
-
-if not shot_df1.empty or not shot_df2.empty:
-
-    st.subheader(
-        "📋 Son 5 Maç Şut Detayları"
-    )
-
-    col1, col2 = st.columns(2)
-
-
-    with col1:
-
-        st.write(
-            f"**{team1_name}**"
-        )
-
-        if not shot_df1.empty:
-
-            st.dataframe(
-                shot_df1,
-                use_container_width=True,
-                hide_index=True
-            )
-
-        else:
-
-            st.info(
-                "Şut verisi bulunamadı."
-            )
-
-
-    with col2:
-
-        st.write(
-            f"**{team2_name}**"
-        )
-
-        if not shot_df2.empty:
-
-            st.dataframe(
-                shot_df2,
-                use_container_width=True,
-                hide_index=True
-            )
-
-        else:
-
-            st.info(
-                "Şut verisi bulunamadı."
-            )
-
-
-# =========================================================
-# ŞUT İSTATİSTİKLERİNE DAYALI AÇIKLAMA
-# =========================================================
-
-st.divider()
 
 st.subheader(
     "🧠 Şut Analizi"
 )
 
 
-if not shot_df1.empty and not shot_df2.empty:
-
-    if shot1["sut_ort"] > shot2["sut_ort"]:
-
-        st.write(
-            f"• Son 5 maçta **{team1_name}**, "
-            f"maç başına ortalama "
-            f"**{shot1['sut_ort']} şut** ile "
-            f"{team2_name}'den daha fazla şut üretmiş."
-        )
-
-    elif shot2["sut_ort"] > shot1["sut_ort"]:
-
-        st.write(
-            f"• Son 5 maçta **{team2_name}**, "
-            f"maç başına ortalama "
-            f"**{shot2['sut_ort']} şut** ile "
-            f"{team1_name}'den daha fazla şut üretmiş."
-        )
-
-    else:
-
-        st.write(
-            "• İki takımın maç başına şut ortalamaları eşit."
-        )
-
-
-    if shot1["isabetli_ort"] > shot2["isabetli_ort"]:
-
-        st.write(
-            f"• **{team1_name}** isabetli şut "
-            f"ortalamasında daha yüksek."
-        )
-
-    elif shot2["isabetli_ort"] > shot1["isabetli_ort"]:
-
-        st.write(
-            f"• **{team2_name}** isabetli şut "
-            f"ortalamasında daha yüksek."
-        )
-
-    else:
-
-        st.write(
-            "• İki takımın isabetli şut ortalamaları birbirine eşit."
-        )
-
-
-    if shot1["isabet_orani"] > shot2["isabet_orani"]:
-
-        st.write(
-            f"• Şut isabet oranı **{team1_name}** lehine daha yüksek."
-        )
-
-    elif shot2["isabet_orani"] > shot1["isabet_orani"]:
-
-        st.write(
-            f"• Şut isabet oranı **{team2_name}** lehine daha yüksek."
-        )
-
-    else:
-
-        st.write(
-            "• İki takımın şut isabet oranları eşit."
-        )
-
-
-    if shot1["rakip_sut_ort"] < shot2["rakip_sut_ort"]:
-
-        st.write(
-            f"• Rakibe daha az şut verme açısından "
-            f"**{team1_name}** daha iyi görünüyor."
-        )
-
-    elif shot2["rakip_sut_ort"] < shot1["rakip_sut_ort"]:
-
-        st.write(
-            f"• Rakibe daha az şut verme açısından "
-            f"**{team2_name}** daha iyi görünüyor."
-        )
-
-    else:
-
-        st.write(
-            "• İki takımın rakibe verdiği şut ortalamaları eşit."
-        )
-
-else:
-
-    st.info(
-        "Şut analizi için yeterli maç verisi bulunamadı."
-    )
+st.write(
+    "Bu bölüm için gerekli şut verileri mevcut API "
+    "planında bulunmadığından takımlar arasında şut "
+    "karşılaştırması yapılamıyor."
+)
 
 
 # =========================================================
-# BASİT GENEL ANALİZ
+# GENEL ANALİZ
 # =========================================================
 
 st.divider()
@@ -1001,6 +634,7 @@ score1 = 0
 score2 = 0
 
 
+# Puan
 if stats1["puan"] > stats2["puan"]:
 
     score1 += 1
@@ -1010,6 +644,7 @@ elif stats2["puan"] > stats1["puan"]:
     score2 += 1
 
 
+# Atılan gol
 if stats1["gf"] > stats2["gf"]:
 
     score1 += 1
@@ -1019,6 +654,7 @@ elif stats2["gf"] > stats1["gf"]:
     score2 += 1
 
 
+# Yenilen gol
 if stats1["ga"] < stats2["ga"]:
 
     score1 += 1
@@ -1028,6 +664,7 @@ elif stats2["ga"] < stats1["ga"]:
     score2 += 1
 
 
+# Maç başına gol
 if stats1["gol_ort"] > stats2["gol_ort"]:
 
     score1 += 1
@@ -1037,20 +674,12 @@ elif stats2["gol_ort"] > stats1["gol_ort"]:
     score2 += 1
 
 
-if shot1["sut_ort"] > shot2["sut_ort"]:
+# Galibiyet sayısı
+if stats1["galibiyet"] > stats2["galibiyet"]:
 
     score1 += 1
 
-elif shot2["sut_ort"] > shot1["sut_ort"]:
-
-    score2 += 1
-
-
-if shot1["isabetli_ort"] > shot2["isabetli_ort"]:
-
-    score1 += 1
-
-elif shot2["isabetli_ort"] > shot1["isabetli_ort"]:
+elif stats2["galibiyet"] > stats1["galibiyet"]:
 
     score2 += 1
 
@@ -1153,8 +782,10 @@ def venue_stats(df):
 
     result = []
 
-
-    for venue in ["Ev", "Deplasman"]:
+    for venue in [
+        "Ev",
+        "Deplasman"
+    ]:
 
         part = df[
             df["Saha"] == venue
@@ -1163,7 +794,6 @@ def venue_stats(df):
         if len(part) == 0:
 
             continue
-
 
         result.append({
 
@@ -1191,7 +821,6 @@ def venue_stats(df):
                 part["GA"].sum()
             )
         })
-
 
     return pd.DataFrame(result)
 
@@ -1277,27 +906,43 @@ try:
 
     h2h_response.raise_for_status()
 
-
     h2h_matches = h2h_response.json()["matches"]
 
-
     h2h_rows = []
-
 
     for m in h2h_matches:
 
         home_id = m["homeTeam"]["id"]
         away_id = m["awayTeam"]["id"]
 
-
-        if {home_id, away_id} == {
+        if {
+            home_id,
+            away_id
+        } == {
             team1_id,
             team2_id
         }:
 
+            home_score = m[
+                "score"
+            ][
+                "fullTime"
+            ][
+                "home"
+            ]
+
+            away_score = m[
+                "score"
+            ][
+                "fullTime"
+            ][
+                "away"
+            ]
+
             h2h_rows.append({
 
-                "Tarih": m["utcDate"][:10],
+                "Tarih":
+                    m["utcDate"][:10],
 
                 "Ev Sahibi":
                     m["homeTeam"]["name"],
@@ -1305,11 +950,9 @@ try:
                 "Deplasman":
                     m["awayTeam"]["name"],
 
-                "Skor": (
-                    f'{m["score"]["fullTime"]["home"]}'
-                    f' - '
-                    f'{m["score"]["fullTime"]["away"]}'
-                )
+                "Skor":
+                    f"{home_score} - {away_score}"
+
             })
 
 
@@ -1319,24 +962,26 @@ try:
             h2h_rows
         )
 
-
         st.dataframe(
-
             h2h_df,
-
             use_container_width=True,
-
             hide_index=True
-
         )
 
     else:
 
         st.info(
-            "Mevcut API verileri içerisinde "
-            "bu iki takımın yakın dönem karşılaşması "
-            "bulunamadı."
+            "Mevcut API verileri içerisinde bu iki takımın "
+            "yakın dönem karşılaşması bulunamadı."
         )
+
+
+except requests.exceptions.HTTPError:
+
+    st.info(
+        "H2H verisi API kullanım limitine ulaşıldığı "
+        "için şu anda alınamadı."
+    )
 
 
 except Exception:
